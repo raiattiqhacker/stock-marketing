@@ -62,8 +62,7 @@ LAYOUT = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stock Manager</title>
 <style>
-body{font-family:Arial,sans-serif;max-width:800px;margin:20px auto;padding:0 12px;background:#Light blue: 
-#dbeafe}
+body{font-family:Arial,sans-serif;max-width:800px;margin:20px auto;padding:0 12px;background:#dbeafe}
 nav{display:flex;gap:14px;align-items:center;margin-bottom:16px}
 table{width:100%;border-collapse:collapse;background:#fff}
 td,th{border:1px solid #ddd;padding:8px;text-align:left}

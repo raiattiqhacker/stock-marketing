@@ -18,6 +18,35 @@ DB_URL = (os.environ.get("DATABASE_URL")
           or os.environ.get("POSTGRES_URL")
           or os.environ.get("STORAGE_URL"))
 
+# 50 cyber security items: (naam, qty, min level)
+PRESET = [
+    ("Firewall Appliance (Fortinet)", 8, 2), ("Firewall Appliance (Cisco ASA)", 5, 2),
+    ("Managed Switch 24-Port", 15, 4), ("Managed Switch 48-Port", 6, 2),
+    ("Enterprise Router", 12, 3), ("Wireless Access Point", 20, 5),
+    ("USB Wi-Fi Adapter", 30, 8), ("Network Load Balancer", 3, 1),
+    ("VPN Gateway Device", 4, 1), ("SFP Fiber Module", 25, 6),
+    ("LAN Cable Cat6 (305m Box)", 15, 4), ("Patch Cable 1m", 100, 25),
+    ("RJ45 Connectors (Pack of 100)", 20, 5), ("Crimping Tool Kit", 10, 3),
+    ("Network Cable Tester", 8, 2), ("Network Rack 42U", 4, 1),
+    ("USB Security Key (FIDO2)", 40, 10), ("Smart Card", 80, 20),
+    ("Smart Card Reader", 25, 6), ("Biometric Fingerprint Machine", 10, 3),
+    ("RFID Access Card", 150, 30), ("RFID Door Controller", 8, 2),
+    ("Face Recognition Terminal", 5, 2), ("Hardware OTP Token", 35, 10),
+    ("IP Dome Camera", 40, 10), ("IP Bullet Camera", 35, 10),
+    ("NVR 16-Channel", 8, 2), ("DVR 8-Channel", 6, 2),
+    ("Surveillance Hard Disk 4TB", 20, 5), ("PoE Injector", 25, 6),
+    ("Antivirus License (1 Year)", 100, 25), ("Endpoint Protection License", 80, 20),
+    ("VPN License (1 Year)", 50, 15), ("SIEM License", 5, 1),
+    ("Email Security License", 40, 10), ("Password Manager License", 60, 15),
+    ("Backup Software License", 30, 8), ("Vulnerability Scanner License", 6, 2),
+    ("Windows Server License", 10, 3), ("SSL Certificate (1 Year)", 25, 5),
+    ("Security Testing Laptop", 10, 3), ("Desktop PC", 15, 4),
+    ("External Hard Drive 2TB", 30, 8), ("NAS Storage Device", 4, 1),
+    ("UPS 1KVA", 12, 3), ("Raspberry Pi (Lab Use)", 15, 4),
+    ("Encrypted USB Flash Drive 64GB", 50, 15), ("Monitor-Mode Wireless Adapter", 10, 3),
+    ("Security Awareness Training Kit", 20, 5), ("Faraday Bag (Phone Shielding)", 25, 8),
+]
+
 
 # ---------- Postgres storage (Neon) ----------
 def fresh():
@@ -87,6 +116,22 @@ def login_required(admin=False):
     return deco
 
 
+def add_stock(d, name, qty, min_level, merge):
+    """Item add karta hai. Pehle se ho to merge=True par qty jama hoti hai,
+    warna chhor deta hai. Return: 'new', 'updated' ya 'skipped'."""
+    name = name.strip()
+    for i in d["items"]:
+        if i["name"].lower() == name.lower():
+            if merge:
+                i["quantity"] += qty
+                return "updated"
+            return "skipped"
+    d["items"].append({"id": d["next_id"], "name": name,
+                       "quantity": max(0, qty), "min_level": max(0, min_level)})
+    d["next_id"] += 1
+    return "new"
+
+
 LAYOUT = """
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -151,8 +196,9 @@ table{width:100%;border-collapse:collapse}
 body.app th{text-align:left;color:#64748b;font-size:13px;padding:10px;border-bottom:2px solid #eef2f7}
 body.app td{padding:10px;border-bottom:1px solid #eef2f7;font-size:14px}
 body.app tr.low td{background:#fff1f2}
-body.app input{padding:10px 12px;border-radius:10px;border:1px solid #d5dcea;background:#fff;color:#1e293b;margin:2px;outline:none;font-size:14px}
-body.app input:focus{border-color:#4f7cff;box-shadow:0 0 0 3px rgba(79,124,255,.18)}
+body.app input,body.app textarea{padding:10px 12px;border-radius:10px;border:1px solid #d5dcea;background:#fff;color:#1e293b;margin:2px;outline:none;font-size:14px;font-family:inherit}
+body.app input:focus,body.app textarea:focus{border-color:#4f7cff;box-shadow:0 0 0 3px rgba(79,124,255,.18)}
+textarea{width:100%;min-height:170px}
 .addrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .msg{background:#fff7e0;border:1px solid #f5d27a;color:#8a5a00;padding:10px 14px;margin:0 0 14px;border-radius:10px}
 .tag{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
@@ -213,6 +259,7 @@ body.guest input::placeholder{color:#64748b}
     <a class="ico {{ 'on' if request.path=='/' else '' }}" href="/" title="Dashboard">&#127968;</a>
     <a class="ico {{ 'on' if request.path=='/stock' else '' }}" href="/stock" title="Stock">&#128230;</a>
     <a class="ico {{ 'on' if request.path=='/chat' else '' }}" href="/chat" title="Chat">&#128172;</a>
+    {% if session.role=='admin' %}<a class="ico {{ 'on' if request.path=='/import' else '' }}" href="/import" title="Bulk Import">&#128229;</a>{% endif %}
     {% if session.role=='admin' %}<a class="ico {{ 'on' if request.path=='/logs' else '' }}" href="/logs" title="Logs">&#128220;</a>{% endif %}
     <a class="ico" href="/logout" title="Logout">&#128682;</a>
   </aside>
@@ -222,6 +269,7 @@ body.guest input::placeholder{color:#64748b}
       <a class="pill {{ 'on' if request.path=='/' else '' }}" href="/">Dashboard</a>
       <a class="pill {{ 'on' if request.path=='/stock' else '' }}" href="/stock">Stock</a>
       <a class="pill {{ 'on' if request.path=='/chat' else '' }}" href="/chat">Chat</a>
+      {% if session.role=='admin' %}<a class="pill {{ 'on' if request.path=='/import' else '' }}" href="/import">Import</a>{% endif %}
       {% if session.role=='admin' %}<a class="pill {{ 'on' if request.path=='/logs' else '' }}" href="/logs">Logs</a>{% endif %}
       <div class="chip"><span>{{session.user}} ({{session.role}})</span><div class="avatar">{{ session.user[0]|upper }}</div></div>
     </div>
@@ -317,321 +365,4 @@ def login():
             if user["role"] == "admin":
                 user["failed"] = 0
                 flash("Password ghalat hai. Dobara koshish karein.")
-                log(d, "Login fail: wrong password (admin, no lock)", u)
-            else:
-                user["failed"] += 1
-                left = MAX_ATTEMPTS - user["failed"]
-                if left <= 0:
-                    user["locked_until"] = (datetime.utcnow() + timedelta(minutes=LOCK_MINUTES)).isoformat()
-                    user["failed"] = 0
-                    flash(f"Bohat ghalat tries. Account {LOCK_MINUTES} minute ke liye block.")
-                    log(d, "ACCOUNT BLOCKED (ghalat password)", u)
-                else:
-                    flash(f"Password ghalat. {left} try baqi hain.")
-                    log(d, "Login fail: wrong password", u)
-        save(d)
-    return page('<div class="auth">' + BRAND + """
-    <div class="form-side">
-      <h2>Welcome back</h2>
-      <p class="sub">Apne account mein login karein</p>
-      <form method="post">
-        <label>Username</label>
-        <input name="username" placeholder="Username" required autocomplete="username">
-        <label>Password</label>
-        <div class="pwrow">
-          <input id="pw" name="password" type="password" placeholder="Password" required autocomplete="current-password">
-          <button type="button" class="eye" """ + EYE_JS + """>Show</button>
-        </div>
-        <button class="big">Login</button>
-      </form>
-      <div class="alt">Account nahi hai? <a href="/register">Register karein</a></div>
-    </div></div>""")
-
-
-@app.route("/logout")
-def logout():
-    if "user" in session:
-        d = load()
-        log(d, "Logout")
-        save(d)
-    session.clear()
-    return redirect(url_for("login"))
-
-
-# ---------- Dashboard ----------
-@app.route("/")
-@login_required()
-def home():
-    d = load()
-    items = d["items"]
-    total_items = len(items)
-    total_units = sum(i["quantity"] for i in items)
-    out_items = [i for i in items if i["quantity"] == 0]
-    low_items = [i for i in items if 0 < i["quantity"] <= i["min_level"]]
-    healthy = total_items - len(out_items) - len(low_items)
-    pct = round(healthy * 100 / total_items) if total_items else 100
-    chart_items = sorted(items, key=lambda i: i["name"].lower())[:8]
-    chart_max = max([i["quantity"] for i in chart_items] + [1])
-    top_items = sorted(items, key=lambda i: i["quantity"], reverse=True)[:5]
-    alerts = (out_items + low_items)[:5]
-    activities = d["logs"][::-1][:6]
-    return page("""
-    <h2 class="hi">Welcome Back, {{session.user}}!</h2>
-    <p class="muted">Here's what's happening with your inventory today.</p>
-
-    <div class="grid4">
-      <div class="card stat"><span>Total Items</span><b>{{total_items}}</b></div>
-      <div class="card stat"><span>Total Units in Stock</span><b>{{total_units}}</b></div>
-      <div class="card stat"><span>Low Stock Items</span><b class="warn">{{low_count}}</b></div>
-      <div class="card stat"><span>Out of Stock</span><b class="bad">{{out_count}}</b></div>
-    </div>
-
-    <div class="row2">
-      <div class="card">
-        <h3>Inventory Statistics</h3>
-        <div class="bars">
-          {% for i in chart_items %}
-          <div class="col">
-            <div class="bw"><div class="bar {{ 'lowbar' if i.quantity <= i.min_level else '' }}"
-              style="height:{{ (i.quantity * 100 / chart_max)|round|int }}%"><em>{{i.quantity}}</em></div></div>
-            <small>{{i.name}}</small>
-          </div>
-          {% else %}<p class="muted">Abhi koi item nahi. Stock page se item add karein.</p>{% endfor %}
-        </div>
-        <div class="legend"><span class="dot" style="background:#4f7cff"></span>Theek stock
-          <span class="dot" style="background:#ef4444"></span>Kam stock</div>
-      </div>
-      <div class="card">
-        <h3>Stock Health</h3>
-        <div class="donut-wrap">
-          <div class="donut" style="background:conic-gradient(#4f7cff {{pct}}%, #fecaca 0)">
-            <div><b>{{pct}}%</b><span>Healthy</span></div>
-          </div>
-          <div class="mini"><span>Theek: <b>{{healthy}}</b></span><span>Kam: <b>{{low_count}}</b></span><span>Khatam: <b>{{out_count}}</b></span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row3">
-      <div class="card">
-        <h3>Recent Activities</h3>
-        <div class="list">
-          {% for l in activities %}
-          <div class="li"><div class="ic">&#128221;</div><div><b>{{l.action}}</b><small>{{l.username}} &middot; {{l.time}}</small></div></div>
-          {% else %}<p class="muted">Abhi koi activity nahi.</p>{% endfor %}
-        </div>
-      </div>
-      <div class="card">
-        <h3>Alerts &amp; Notifications</h3>
-        <div class="list">
-          {% for i in alerts %}
-          <div class="li"><div class="ic red">&#9888;</div><div><b>{{ 'Out of stock' if i.quantity == 0 else 'Low stock' }}: {{i.name}}</b><small>Qty {{i.quantity}} (min {{i.min_level}})</small></div></div>
-          {% else %}<div class="li"><div class="ic green">&#10004;</div><div><b>Sab theek hai</b><small>Koi item kam nahi hai</small></div></div>{% endfor %}
-        </div>
-      </div>
-      <div class="card">
-        <h3>Top Items</h3>
-        <div class="list">
-          {% for i in top_items %}
-          <div class="li"><div class="ic">&#128230;</div><div><b>{{i.name}}</b><small>{{i.quantity}} units</small></div></div>
-          {% else %}<p class="muted">Abhi koi item nahi.</p>{% endfor %}
-        </div>
-      </div>
-    </div>""", total_items=total_items, total_units=total_units, low_count=len(low_items),
-        out_count=len(out_items), healthy=healthy, pct=pct, chart_items=chart_items,
-        chart_max=chart_max, top_items=top_items, alerts=alerts, activities=activities)
-
-
-# ---------- Stock ----------
-@app.route("/stock")
-@login_required()
-def stock():
-    items = sorted(load()["items"], key=lambda i: i["name"].lower())
-    return page("""
-    <h2 class="hi">Stock</h2>
-    <p class="muted">Items add karein aur quantity update karein.</p>
-    <div class="card">
-      <form method="post" action="/add" class="addrow">
-        <input name="name" placeholder="Item name" required>
-        <input name="quantity" type="number" min="0" placeholder="Qty" required style="width:100px">
-        <input name="min_level" type="number" min="0" placeholder="Min level" value="5" style="width:110px">
-        <button>+ Add item</button>
-      </form>
-      <div class="tbl">
-      <table><tr><th>Item</th><th>Qty</th><th>Min</th><th>Status</th><th>Action</th></tr>
-      {% for i in items %}
-      <tr class="{{ 'low' if i.quantity <= i.min_level else '' }}">
-        <td>{{i.name}}</td><td>{{i.quantity}}</td><td>{{i.min_level}}</td>
-        <td>{% if i.quantity == 0 %}<span class="tag out">Out</span>
-            {% elif i.quantity <= i.min_level %}<span class="tag low">Low</span>
-            {% else %}<span class="tag ok">OK</span>{% endif %}</td>
-        <td><form class="inline" method="post" action="/update/{{i.id}}">
-          <input name="quantity" type="number" min="0" value="{{i.quantity}}" style="width:80px">
-          <button>Update</button></form>
-          {% if session.role=='admin' %}
-          <form class="inline" method="post" action="/delete/{{i.id}}"
-            onsubmit="return confirm('Delete karna hai?')"><button style="background:#ef4444">Delete</button></form>
-          {% endif %}</td></tr>
-      {% else %}<tr><td colspan="5">Abhi koi item nahi.</td></tr>{% endfor %}
-      </table></div>
-      <p class="muted" style="margin:12px 0 0">Laal rows = stock kam hai.</p>
-    </div>""", items=items)
-
-
-@app.route("/add", methods=["POST"])
-@login_required()
-def add():
-    d = load()
-    item = {"id": d["next_id"], "name": request.form["name"].strip(),
-            "quantity": max(0, int(request.form["quantity"])),
-            "min_level": max(0, int(request.form.get("min_level") or 5))}
-    d["next_id"] += 1
-    d["items"].append(item)
-    log(d, f"Item add: {item['name']} ({item['quantity']})")
-    save(d)
-    return redirect(url_for("stock"))
-
-
-@app.route("/update/<int:item_id>", methods=["POST"])
-@login_required()
-def update(item_id):
-    d = load()
-    for i in d["items"]:
-        if i["id"] == item_id:
-            old, i["quantity"] = i["quantity"], max(0, int(request.form["quantity"]))
-            log(d, f"Qty change: {i['name']} {old} -> {i['quantity']}")
-    save(d)
-    return redirect(url_for("stock"))
-
-
-@app.route("/delete/<int:item_id>", methods=["POST"])
-@login_required(admin=True)
-def delete(item_id):
-    d = load()
-    for i in d["items"]:
-        if i["id"] == item_id:
-            log(d, f"Item delete: {i['name']}")
-    d["items"] = [i for i in d["items"] if i["id"] != item_id]
-    save(d)
-    return redirect(url_for("stock"))
-
-
-# ---------- Admin ----------
-@app.route("/logs")
-@login_required(admin=True)
-def logs():
-    d = load()
-    locked = [u for u, v in d["users"].items() if is_locked(v)]
-    return page("""
-    <h2 class="hi">Logs</h2>
-    <div class="card" style="margin-bottom:16px">
-      <h3>Blocked users</h3>
-      {% for u in locked %}<form class="inline" method="post" action="/unlock/{{u}}">
-        {{u}} <button>Unlock</button></form><br>
-      {% else %}<span class="muted">Koi blocked user nahi.</span>{% endfor %}
-    </div>
-    <div class="card">
-      <h3>Audit log (last 100)</h3>
-      <div class="tbl">
-      <table><tr><th>Time (UTC)</th><th>User</th><th>Action</th></tr>
-      {% for l in entries %}<tr><td>{{l.time}}</td><td>{{l.username}}</td>
-        <td>{{l.action}}</td></tr>{% endfor %}</table></div>
-    </div>""", locked=locked, entries=d["logs"][::-1][:100])
-
-
-@app.route("/unlock/<username>", methods=["POST"])
-@login_required(admin=True)
-def unlock(username):
-    d = load()
-    if username in d["users"]:
-        d["users"][username].update(locked_until=None, failed=0)
-        log(d, f"Admin ne unlock kiya: {username}")
-        save(d)
-    return redirect(url_for("logs"))
-
-
-# ---------- Chatbot ----------
-def chat_reply(q, d, role):
-    q = q.lower().strip()
-    items = d["items"]
-    low = [i for i in items if 0 < i["quantity"] <= i["min_level"]]
-    out = [i for i in items if i["quantity"] == 0]
-
-    def names(lst):
-        return "\n".join(f"- {i['name']}: {i['quantity']} (min {i['min_level']})" for i in lst[:15])
-
-    if any(w in q for w in ("help", "madad", "kya pooch", "hello", "salam")) or q in ("hi", "hey"):
-        return ("Main ye sawal samajhta hoon:\n- kam stock kaun sa hai?\n- kya khatam ho gaya?\n"
-                "- total items kitne hain?\n- recent activity\n- item ka naam likhein (jaise firewall)")
-    if any(w in q for w in ("khatam", "out of", "zero", "finish")):
-        return ("Ye items khatam hain:\n" + names(out)) if out else "Koi item khatam nahi hai."
-    if any(w in q for w in ("low", "kam", "reorder", "order", "mangwa")):
-        if not low and not out:
-            return "Sab theek hai, koi item kam nahi hai."
-        text = ""
-        if low:
-            text += "Kam stock (jaldi order karein):\n" + names(low) + "\n"
-        if out:
-            text += "Khatam:\n" + names(out)
-        return text.strip()
-    if any(w in q for w in ("total", "kitne items", "count", "summary", "report")):
-        units = sum(i["quantity"] for i in items)
-        return (f"Total items: {len(items)}\nTotal units: {units}\n"
-                f"Kam stock: {len(low)}\nKhatam: {len(out)}")
-    if any(w in q for w in ("activity", "recent", "log", "history")):
-        recent = d["logs"][::-1][:5]
-        if not recent:
-            return "Abhi koi activity nahi."
-        return "\n".join(f"- {l['time']} {l['username']}: {l['action']}" for l in recent)
-    if "block" in q and role == "admin":
-        locked = [u for u, v in d["users"].items() if is_locked(v)]
-        return ("Blocked users: " + ", ".join(locked)) if locked else "Koi user blocked nahi."
-
-    words = [w for w in re.findall(r"\w+", q) if len(w) >= 3]
-    found = [i for i in items
-             if i["name"].lower() in q or any(w in i["name"].lower() for w in words)]
-    if found:
-        return "Mujhe ye items mile:\n" + names(found)
-    return "Samajh nahi aaya. 'help' likh kar dekhein ke main kya bata sakta hoon."
-
-
-@app.route("/chat")
-@login_required()
-def chat():
-    return page("""
-    <h2 class="hi">Stock Assistant</h2>
-    <p class="muted">Stock ke bare mein sawal poochein.</p>
-    <div class="card">
-      <div class="cb" id="cb">
-        <div class="m bot">Salam! Main aapke stock ka assistant hoon. 'help' likhein.</div>
-      </div>
-      <form class="cf" onsubmit="send(event)">
-        <input id="q" placeholder="Jaise: kaun sa stock kam hai?" autocomplete="off">
-        <button>Send</button>
-      </form>
-    </div>
-    <script>
-    var box=document.getElementById('cb');
-    function add(t,me){var d=document.createElement('div');d.className='m '+(me?'me':'bot');d.textContent=t;box.appendChild(d);box.scrollTop=box.scrollHeight}
-    function send(e){
-      e.preventDefault();
-      var i=document.getElementById('q');var t=i.value.trim();
-      if(!t)return;
-      add(t,true);i.value='';
-      fetch('/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:t})})
-        .then(function(r){return r.json()})
-        .then(function(j){add(j.reply,false)})
-        .catch(function(){add('Error aa gaya, dobara try karein.',false)});
-    }
-    </script>""")
-
-
-@app.route("/chat/ask", methods=["POST"])
-@login_required()
-def chat_ask():
-    q = str((request.get_json(silent=True) or {}).get("q", ""))[:200]
-    return {"reply": chat_reply(q, load(), session.get("role"))}
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+                log(d, "Login fail: wrong

@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from datetime import datetime, timedelta
 from functools import wraps
@@ -107,7 +108,7 @@ body.app a{color:#3b66f5}
 .ico{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:21px}
 .ico:hover,.ico.on{background:#e6edff}
 .main{flex:1;padding:18px 24px;min-width:0}
-.top{display:flex;align-items:center;gap:14px;background:#fff;border-radius:16px;padding:10px 18px;margin-bottom:20px;box-shadow:0 4px 18px rgba(15,23,42,.06)}
+.top{display:flex;align-items:center;gap:14px;background:#fff;border-radius:16px;padding:10px 18px;margin-bottom:20px;box-shadow:0 4px 18px rgba(15,23,42,.06);flex-wrap:wrap}
 .top .brand-name{font-weight:700;font-size:17px}
 .pill{padding:7px 16px;border-radius:999px;font-size:14px;color:#475569}
 .pill.on{background:#eef2ff;color:#3b66f5;font-weight:600}
@@ -157,6 +158,14 @@ body.app input:focus{border-color:#4f7cff;box-shadow:0 0 0 3px rgba(79,124,255,.
 .tag{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
 .tag.ok{background:#dcfce7;color:#15803d}.tag.low{background:#fef3c7;color:#b45309}.tag.out{background:#fee2e2;color:#b91c1c}
 
+/* ===== Chat ===== */
+.cb{height:380px;overflow-y:auto;background:#f6f8fc;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:78%;padding:10px 14px;border-radius:14px;font-size:14px;white-space:pre-line;line-height:1.5}
+.m.me{align-self:flex-end;background:linear-gradient(135deg,#4f7cff,#6a5cff);color:#fff}
+.m.bot{align-self:flex-start;background:#fff;border:1px solid #e2e8f0}
+.cf{display:flex;gap:8px;margin-top:12px}
+.cf input{flex:1}
+
 /* ===== Guest (login/register) dark theme ===== */
 body.guest{color:#e2e8f0;min-height:100vh;padding:20px 14px;
 background:radial-gradient(circle at 15% 10%,#2a1a6e 0%,transparent 45%),radial-gradient(circle at 85% 90%,#0e4a6b 0%,transparent 45%),#0a0f1f;background-attachment:fixed}
@@ -203,6 +212,7 @@ body.guest input::placeholder{color:#64748b}
     <div class="logo">&#128737;</div>
     <a class="ico {{ 'on' if request.path=='/' else '' }}" href="/" title="Dashboard">&#127968;</a>
     <a class="ico {{ 'on' if request.path=='/stock' else '' }}" href="/stock" title="Stock">&#128230;</a>
+    <a class="ico {{ 'on' if request.path=='/chat' else '' }}" href="/chat" title="Chat">&#128172;</a>
     {% if session.role=='admin' %}<a class="ico {{ 'on' if request.path=='/logs' else '' }}" href="/logs" title="Logs">&#128220;</a>{% endif %}
     <a class="ico" href="/logout" title="Logout">&#128682;</a>
   </aside>
@@ -211,6 +221,7 @@ body.guest input::placeholder{color:#64748b}
       <span class="brand-name">Stock Manager</span>
       <a class="pill {{ 'on' if request.path=='/' else '' }}" href="/">Dashboard</a>
       <a class="pill {{ 'on' if request.path=='/stock' else '' }}" href="/stock">Stock</a>
+      <a class="pill {{ 'on' if request.path=='/chat' else '' }}" href="/chat">Chat</a>
       {% if session.role=='admin' %}<a class="pill {{ 'on' if request.path=='/logs' else '' }}" href="/logs">Logs</a>{% endif %}
       <div class="chip"><span>{{session.user}} ({{session.role}})</span><div class="avatar">{{ session.user[0]|upper }}</div></div>
     </div>
@@ -537,6 +548,89 @@ def unlock(username):
         log(d, f"Admin ne unlock kiya: {username}")
         save(d)
     return redirect(url_for("logs"))
+
+
+# ---------- Chatbot ----------
+def chat_reply(q, d, role):
+    q = q.lower().strip()
+    items = d["items"]
+    low = [i for i in items if 0 < i["quantity"] <= i["min_level"]]
+    out = [i for i in items if i["quantity"] == 0]
+
+    def names(lst):
+        return "\n".join(f"- {i['name']}: {i['quantity']} (min {i['min_level']})" for i in lst[:15])
+
+    if any(w in q for w in ("help", "madad", "kya pooch", "hello", "salam")) or q in ("hi", "hey"):
+        return ("Main ye sawal samajhta hoon:\n- kam stock kaun sa hai?\n- kya khatam ho gaya?\n"
+                "- total items kitne hain?\n- recent activity\n- item ka naam likhein (jaise firewall)")
+    if any(w in q for w in ("khatam", "out of", "zero", "finish")):
+        return ("Ye items khatam hain:\n" + names(out)) if out else "Koi item khatam nahi hai."
+    if any(w in q for w in ("low", "kam", "reorder", "order", "mangwa")):
+        if not low and not out:
+            return "Sab theek hai, koi item kam nahi hai."
+        text = ""
+        if low:
+            text += "Kam stock (jaldi order karein):\n" + names(low) + "\n"
+        if out:
+            text += "Khatam:\n" + names(out)
+        return text.strip()
+    if any(w in q for w in ("total", "kitne items", "count", "summary", "report")):
+        units = sum(i["quantity"] for i in items)
+        return (f"Total items: {len(items)}\nTotal units: {units}\n"
+                f"Kam stock: {len(low)}\nKhatam: {len(out)}")
+    if any(w in q for w in ("activity", "recent", "log", "history")):
+        recent = d["logs"][::-1][:5]
+        if not recent:
+            return "Abhi koi activity nahi."
+        return "\n".join(f"- {l['time']} {l['username']}: {l['action']}" for l in recent)
+    if "block" in q and role == "admin":
+        locked = [u for u, v in d["users"].items() if is_locked(v)]
+        return ("Blocked users: " + ", ".join(locked)) if locked else "Koi user blocked nahi."
+
+    words = [w for w in re.findall(r"\w+", q) if len(w) >= 3]
+    found = [i for i in items
+             if i["name"].lower() in q or any(w in i["name"].lower() for w in words)]
+    if found:
+        return "Mujhe ye items mile:\n" + names(found)
+    return "Samajh nahi aaya. 'help' likh kar dekhein ke main kya bata sakta hoon."
+
+
+@app.route("/chat")
+@login_required()
+def chat():
+    return page("""
+    <h2 class="hi">Stock Assistant</h2>
+    <p class="muted">Stock ke bare mein sawal poochein.</p>
+    <div class="card">
+      <div class="cb" id="cb">
+        <div class="m bot">Salam! Main aapke stock ka assistant hoon. 'help' likhein.</div>
+      </div>
+      <form class="cf" onsubmit="send(event)">
+        <input id="q" placeholder="Jaise: kaun sa stock kam hai?" autocomplete="off">
+        <button>Send</button>
+      </form>
+    </div>
+    <script>
+    var box=document.getElementById('cb');
+    function add(t,me){var d=document.createElement('div');d.className='m '+(me?'me':'bot');d.textContent=t;box.appendChild(d);box.scrollTop=box.scrollHeight}
+    function send(e){
+      e.preventDefault();
+      var i=document.getElementById('q');var t=i.value.trim();
+      if(!t)return;
+      add(t,true);i.value='';
+      fetch('/chat/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:t})})
+        .then(function(r){return r.json()})
+        .then(function(j){add(j.reply,false)})
+        .catch(function(){add('Error aa gaya, dobara try karein.',false)});
+    }
+    </script>""")
+
+
+@app.route("/chat/ask", methods=["POST"])
+@login_required()
+def chat_ask():
+    q = str((request.get_json(silent=True) or {}).get("q", ""))[:200]
+    return {"reply": chat_reply(q, load(), session.get("role"))}
 
 
 if __name__ == "__main__":
